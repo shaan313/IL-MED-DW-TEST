@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd">
+    <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
+    <flow name="test12345Flow">
+        <http:listener config-ref="HTTP_Listener_Configuration" path="/test1234" allowedMethods="POST" doc:name="HTTP"/>
+        <dw:transform-message doc:name="Transform Message" metadata:id="f3e689e8-3201-49a2-bbcf-203b1cb147b5">
+            <dw:input-payload doc:sample="C:\Users\i355695\Desktop\Rough-Work\X1.xml" mimeType="application/xml"/>
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+
+%var providerdata = payload.AuthorizationData.authorizationList.Authorization.providerList.*provider map {
+	($.providerTypeCode): ($)
+}
+%function getAddress(providerType) using (provider = providerdata[providerType])
+                         ((provider.address.line1 ++ provider.address.line2 ++ provider.address.city ++ 
+                         	provider.address.stateCode ++ provider.address.postalCode) joinBy " ") 
+                         when providerdata != null otherwise ""
+%function getProvider(providerType) using (provider = providerdata[providerType])
+                         (provider.providerID)[0] 
+                         when providerdata != null otherwise ""
+                         
+                                            
+                                    
+---
+{
+	admissionType: "Surgical" when (payload.AuthorizationData.authorizationList.Authorization.typeOfService == "1")
+	otherwise "Obstetrics Normal" when (payload.AuthorizationData.authorizationList.Authorization.typeOfService =="3")
+	otherwise "OB C-Section" when (payload.AuthorizationData.authorizationList.Authorization.typeOfService == "5")
+	otherwise "Medical" when (payload.AuthorizationData.authorizationList.Authorization.typeOfService == "6")
+	otherwise "Psych-Substance Abuse" when (payload.AuthorizationData.authorizationList.Authorization.typeOfService == "7")
+	otherwise "Emergency",
+	authClass: "Outpatient" when (payload.AuthorizationData.authorizationList.Authorization.treatmentSetting == "2")
+	otherwise "Inpatient",
+	lobName: "IL Medicaid",
+	authNotes: payload.AuthorizationData.authorizationList.Authorization.NoteList.*note map ((note , indexOfNote) -> {
+		authNoteType: note.noteType,
+		authNoteText: note.noteText
+	}),
+	authPriority: "Elective" when (payload.AuthorizationData.authorizationList.Authorization.treatmentUrgency == "EL")
+	otherwise "Emergency" when (payload.AuthorizationData.authorizationList.Authorization.treatmentUrgency== "EM")
+	otherwise "Urgent",
+	authReviewer: "SmartUM",
+	authServiceLines: [{
+		approvedDaysUnits: payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.requestRehabilitationUnits,
+		decisionReasonCode: "Default",
+		decisionStatus: "Approved" when (payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.requestActionCode == "1")
+		otherwise "Denied" when (payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.requestActionCode == "3")
+		otherwise "Pending" when (payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.requestActionCode == "4")
+		otherwise "Void",
+		serviceCode: {
+			codeType: "CPT" when (payload.AuthorizationData.authorizationList.Authorization.procedureCodeList.procedureCode.procedureCodeIndicator == "C")
+			otherwise "HCPCS",
+			codeCategory: "CPT" when (payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.procedureTypeCode == "C")
+			otherwise "HCPCS",
+			codeValue: null when (payload.AuthorizationData.authorizationList.Authorization.procedureCodeList.procedureCode.codeNumber == null) 
+			otherwise payload.AuthorizationData.authorizationList.Authorization.procedureCodeList.procedureCode.codeNumber
+		},
+		serviceFromDate: payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.requestBeginDate ++ "T00:00:00.000-06:00Z" as :string {format: "yyyy-mm-ddTHH:MM.nnnn"},
+		serviceToDate: payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.requestEndDate ++ "T00:00:00.000-06:00Z" as :string {format: "yyyy-mm-ddTHH:MM.nnnn"},
+		alternateServiceId: payload.AuthorizationData.authorizationList.Authorization.authorizationNumber ++ "_" ++ payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.statusSequenceNumber as :string,
+		unitType: "Days" when (payload.AuthorizationData.authorizationList.Authorization.treatmentSetting == "1")
+		otherwise "Units"
+	}],
+	authStatus: "WITHDRAWN" when (payload.AuthorizationData.authorizationList.Authorization.approvedActionCode == "6")
+		otherwise "CLOSE" when (payload.AuthorizationData.authorizationList.Authorization.approvedActionCode == "1")
+		otherwise "CANCELLED" when (payload.AuthorizationData.authorizationList.Authorization.approvedActionCode == "3") 
+		otherwise "OPEN",
+	authType: "InPatient-Acute",
+	authorizationId: payload.AuthorizationData.authorizationList.Authorization.authorizationNumber,
+	diagnosisCodes: [{
+		codeType: "ICD",
+		codeCategory: "ICD10" when ['10', '0', 'X'] contains payload.AuthorizationData.authorizationList.Authorization.diagnosisCodeList.diagnosisCode.diagnosisCodeIndicator
+		otherwise "ICD9",
+		codeValue: payload.AuthorizationData.authorizationList.Authorization.procedureCodeList.procedureCode.codeNumber
+	}],
+	createdDate: payload.AuthorizationData.authorizationList.Authorization.arisCreateTimeStamp ++ "Z" as :string {format: "yyyy-mm-ddTHH:MM.nnnn"},
+	lastUpdatedDate: payload.AuthorizationData.authorizationList.Authorization.arisLastUpdateTimeStamp ++ "Z" as :string {format: "yyyy-mm-ddTHH:MM.nnnn"},
+	memberID: payload.AuthorizationData.authorizationList.Authorization.memberNumber as :string,
+	notificationDate: payload.AuthorizationData.authorizationList.Authorization.authorizationTransmissionDate[0..9] ++ "T00:00:00.000-06:00Z" as :string {format: "yyyy-mm-ddTHH:MM.nnnn"},
+	placeOfService: "Birthing room" when (payload.AuthorizationData.authorizationList.Authorization.treatmentSetting == "7") 
+	otherwise "Emergency room" when (payload.AuthorizationData.authorizationList.Authorization.treatmentSetting == "6")
+	otherwise "Home" when (payload.AuthorizationData.authorizationList.Authorization.treatmentSetting == "4")
+	otherwise "Office" when (payload.AuthorizationData.authorizationList.Authorization.treatmentSetting == "3")
+	otherwise "Outpatient" when (payload.AuthorizationData.authorizationList.Authorization.treatmentSetting == "2")
+	otherwise "Inpatient" when (payload.AuthorizationData.authorizationList.Authorization.treatmentSetting == "1")
+	otherwise "Other",
+	treatmentType: "Diagnosis" when (payload.AuthorizationData.authorizationList.Authorization.authorizationTypeCode == "D") 
+		otherwise "Medical" when (payload.AuthorizationData.authorizationList.Authorization.authorizationTypeCode == "M") 
+		otherwise "Well Newborn" when (payload.AuthorizationData.authorizationList.Authorization.authorizationTypeCode == "N")
+		otherwise "Obstetrics" when (payload.AuthorizationData.authorizationList.Authorization.authorizationTypeCode =="O") 
+		otherwise "Rehabilitation" when (payload.AuthorizationData.authorizationList.Authorization.authorizationTypeCode == "R")
+		otherwise "Surgical" when (payload.AuthorizationData.authorizationList.Authorization.authorizationTypeCode == "S")
+		otherwise "Transplant",
+	serviceFromDate: payload.AuthorizationData.authorizationList.Authorization.serviceActualBeginDate[0..9] ++ "T00:00:00.000-06:00Z" as :string {format: "yyyy-mm-ddTHH:MM.nnnn"},
+	serviceToDate: payload.AuthorizationData.authorizationList.Authorization.serviceActualEndDate[0..9] ++ "T00:00:00.000-06:00Z"as :string {format: "yyyy-mm-ddTHH:MM.nnnn"},
+	memberNotificationDate: payload.AuthorizationData.authorizationList.Authorization.AuthorizationRequestStatusList.AuthorizationRequestStatus.notifyDate ++ "T00:00:00.000-06:00Z" as :string {format: "yyyy-mm-ddTHH:MM.nnnn"},
+	admittingProvider: {
+		providerID: getProvider('ATTENDING'),
+		address: getAddress('ATTENDING')
+	},
+	referredByProvider: {
+		providerID: getProvider('REFERRING'),
+		address: getAddress('REFERRING')
+	},
+	referredToProvider: {
+		providerID: getProvider('REFERRED'),
+		address: getAddress('REFERRED')
+	},
+	facilityProvider: {
+		providerID: getProvider('FACILITY'),
+		address: getAddress('FACILITY')
+	}
+}]]></dw:set-payload>
+        </dw:transform-message>
+    </flow>
+</mule>

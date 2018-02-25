@@ -1,0 +1,16 @@
+{
+    "inputMessageMetadata": {
+        "messagePayload": {
+            "connectorName": "#_custom_mule_metadata_type_#",
+            "typeId": "LatestMQ-XML"
+        }
+    },
+    "outputMessageMetadata": {
+        "messagePayload": {
+            "connectorName": "#_custom_mule_metadata_type_#",
+            "typeId": "authRequest-JSON"
+        }
+    },
+    "id": "f3e689e8-3201-49a2-bbcf-203b1cb147b5",
+    "version": "5.2.0.0"
+}
